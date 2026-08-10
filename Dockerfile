@@ -24,6 +24,5 @@ COPY --from=build --chown=melodia:melodia /app/server.ts ./server.ts
 COPY --from=build --chown=melodia:melodia /app/package.json ./package.json
 COPY --from=build --chown=melodia:melodia /app/tsconfig.json ./tsconfig.json
 
-USER melodia
 EXPOSE 3000
-CMD ["node", "--import", "tsx", "server.ts"]
+CMD ["sh", "-c", "chown melodia:melodia /data && exec su -s /bin/sh melodia -c 'exec node --import tsx server.ts'"]
