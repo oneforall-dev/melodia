@@ -1,122 +1,63 @@
-# Deployment Guide for Melodia
+# Melodia deployment on Coolify
 
-This guide covers how to deploy the Melodia application to a VPS (Virtual Private Server).
+Production URL: `https://chart.melodia.top`
 
-## Prerequisites
+## 1. DNS
 
-- Node.js (v18 or later)
-- NPM (comes with Node.js)
-- A VPS (e.g., DigitalOcean, Linode, AWS EC2)
-- Domain name (optional but recommended)
+Create an `A` record for `chart.melodia.top` pointing to the public IPv4 address of the Coolify server. If the server has IPv6, optionally add the matching `AAAA` record.
 
-## 1. Preparation
+## 2. Create the Coolify resource
 
-Ensure you have the following files ready to upload:
-- `package.json` & `package-lock.json`
-- `server.ts`
-- `server/` directory
-- `src/` directory (for building frontend)
-- `public/` directory
-- `vite.config.ts`
-- `tsconfig.json`
-- `index.html`
+1. Create a new resource from the Git repository.
+2. Select **Docker Compose** as the build pack.
+3. Use `/docker-compose.yml` as the Compose file.
+4. Keep **Base Directory** set to `/`.
 
-## 2. Upload to VPS
+## 3. Environment variables
 
-Upload your project files to your server (e.g., using `scp`, `rsync`, or `git clone`).
+Set these variables in Coolify:
 
-```bash
-# Example using scp
-scp -r ./melodia user@your-vps-ip:/var/www/melodia
+```env
+APP_URL=https://chart.melodia.top
+JWT_SECRET=<random secret with at least 32 characters>
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+ADMIN_USERNAME=
+ADMIN_PASSWORD=
 ```
 
-## 3. Installation
+`APP_URL` and `JWT_SECRET` are mandatory. The application intentionally refuses to start in production when either is missing or when `JWT_SECRET` is shorter than 32 characters.
 
-SSH into your VPS and navigate to the project directory.
+Google and admin credentials are optional. If Google sign-in is enabled, register this exact authorized redirect URI in Google Cloud:
 
-```bash
-cd /var/www/melodia
-npm install
+```text
+https://chart.melodia.top/auth/google/callback
 ```
 
-## 4. Environment Configuration
+## Owner account
 
-Create a `.env` file based on the example.
+`agency.oneforall@gmail.com` is the fixed, unique owner identity. Signing in with that Google account promotes or recovers the account as owner automatically.
 
-```bash
-cp .env.example .env
-nano .env
+For password-based owner access, set both `ADMIN_USERNAME` and `ADMIN_PASSWORD`. On startup, the application creates or recovers that login and binds it to the fixed owner email. Changing `ADMIN_PASSWORD` in Coolify and redeploying rotates the owner password.
+
+The owner cannot be demoted or modified by a normal administrator. Only the owner can grant or revoke superadmin status, and authorization is checked against SQLite on every protected request.
+
+## 4. Domain and proxy
+
+Assign `https://chart.melodia.top` to the `melodia-chart` service and internal port `3000`. Do not expose port 3000 directly on the host. Enable automatic HTTPS certificates in Coolify.
+
+## 5. Persistent data
+
+The named volume `melodia_data` stores `/data/melodia.db` and its SQLite WAL files. Include this volume in the server backup policy before accepting production data.
+
+This application uses SQLite and should run as a single replica. Do not enable horizontal scaling without migrating the database to a server database such as PostgreSQL.
+
+## 6. Verification
+
+After deployment, verify:
+
+```text
+https://chart.melodia.top/health
 ```
 
-**Important:**
-- Set `NODE_ENV=production`
-- Set a strong `JWT_SECRET`
-- Add your `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
-- Set `DATABASE_PATH` if you want to store the database in a specific location (e.g., `/var/data/melodia.db`). Default is `./melodia.db`.
-- **Optional:** Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` to automatically create or update an admin user on startup.
-
-## 5. Build the Frontend
-
-Compile the React frontend. This generates the `dist/` folder.
-
-```bash
-npm run build
-```
-
-## 6. Start the Server
-
-You can start the server directly for testing:
-
-```bash
-npm start
-```
-
-For production, use a process manager like **PM2** to keep the app running in the background and restart it on failure.
-
-```bash
-# Install PM2 globally
-npm install -g pm2
-
-# Start the app
-pm2 start npm --name "melodia" -- start
-
-# Save PM2 list to resurrect on reboot
-pm2 save
-pm2 startup
-```
-
-## 7. Reverse Proxy (Nginx) - Optional but Recommended
-
-To serve your app on port 80/443 (HTTP/HTTPS) instead of 3000, set up Nginx.
-
-Example Nginx Config (`/etc/nginx/sites-available/melodia`):
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
-
-Enable the site and restart Nginx:
-
-```bash
-ln -s /etc/nginx/sites-available/melodia /etc/nginx/sites-enabled/
-nginx -t
-systemctl restart nginx
-```
-
-## Troubleshooting
-
-- **Database Errors:** Ensure the directory for `DATABASE_PATH` exists and is writable by the user running the app.
-- **Build Errors:** If `npm run build` fails, ensure your VPS has enough RAM (at least 1GB recommended).
-- **Port Conflicts:** If port 3000 is taken, change `PORT` in `.env`.
+It must return HTTP 200 with the body `OK`. Then test registration/login, a write operation, a redeploy, and confirm that the data persists.

@@ -21,7 +21,11 @@ const updatePasswordSchema = z.object({
 });
 
 // Search Users
-router.get('/search', (req, res) => {
+router.get('/search', authenticateJWT, (req, res) => {
+  const requestingUser = (req as any).user;
+  if (requestingUser.role !== 'admin' && !requestingUser.isSuperAdmin && !requestingUser.isOwner) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const { q } = req.query;
   if (!q || typeof q !== 'string') {
     res.json([]);
@@ -29,7 +33,7 @@ router.get('/search', (req, res) => {
   }
 
   const query = `%${q.toLowerCase()}%`;
-  const stmt = db.prepare('SELECT id, username, email, country, is_super_admin FROM users WHERE lower(username) LIKE ? OR lower(email) LIKE ? LIMIT 5');
+  const stmt = db.prepare('SELECT id, username, email, country, is_super_admin, is_owner FROM users WHERE lower(username) LIKE ? OR lower(email) LIKE ? LIMIT 5');
   const users = stmt.all(query, query) as any[];
   
   const mappedUsers = users.map(u => ({
@@ -37,7 +41,8 @@ router.get('/search', (req, res) => {
     username: u.username,
     email: u.email,
     country: u.country,
-    isSuperAdmin: !!u.is_super_admin
+    isSuperAdmin: !!u.is_super_admin,
+    isOwner: !!u.is_owner
   }));
 
   res.json(mappedUsers);
@@ -47,6 +52,11 @@ router.get('/search', (req, res) => {
 router.put('/:id', authenticateJWT, (req, res) => {
   const user = (req as any).user;
   const { id } = req.params;
+
+  const target = db.prepare('SELECT is_owner FROM users WHERE id = ?').get(id) as any;
+  if (target?.is_owner && !user.isOwner) {
+    return res.status(403).json({ error: 'The owner can only modify their own profile' });
+  }
 
   if (user.id !== id && user.role !== 'admin' && !user.isSuperAdmin) {
     return res.status(403).json({ error: 'Forbidden' });
@@ -95,9 +105,13 @@ router.post('/:id/toggle-admin', authenticateJWT, (req, res) => {
   const user = (req as any).user;
   const { id } = req.params;
 
-  if (user.role !== 'admin' && !user.isSuperAdmin) {
+  if (!user.isOwner) {
     return res.status(403).json({ error: 'Forbidden' });
   }
+
+  const target = db.prepare('SELECT is_owner FROM users WHERE id = ?').get(id) as any;
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  if (target.is_owner) return res.status(400).json({ error: 'The owner cannot be demoted' });
 
   const validation = toggleAdminSchema.safeParse(req.body);
   if (!validation.success) {
@@ -130,6 +144,11 @@ router.post('/:id/toggle-admin', authenticateJWT, (req, res) => {
 router.post('/:id/password', authenticateJWT, async (req, res) => {
   const user = (req as any).user;
   const { id } = req.params;
+
+  const target = db.prepare('SELECT is_owner FROM users WHERE id = ?').get(id) as any;
+  if (target?.is_owner && !user.isOwner) {
+    return res.status(403).json({ error: 'Only the owner can change the owner password' });
+  }
 
   if (user.id !== id && user.role !== 'admin' && !user.isSuperAdmin) {
     return res.status(403).json({ error: 'Forbidden' });

@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+*.db
+*.db-wal
+*.db-shm
+*.zip
+npm-debug.log*

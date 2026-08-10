@@ -17,11 +17,25 @@ import chartRoutes from './server/routes/chart';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+if (process.env.NODE_ENV === 'production') {
+  const requiredVariables = ['APP_URL', 'JWT_SECRET'];
+  const missingVariables = requiredVariables.filter((name) => !process.env[name]);
+
+  if (missingVariables.length > 0) {
+    throw new Error(`Missing required production variables: ${missingVariables.join(', ')}`);
+  }
+
+  if ((process.env.JWT_SECRET?.length ?? 0) < 32) {
+    throw new Error('JWT_SECRET must contain at least 32 characters in production.');
+  }
+}
+
 // Initialize Database
 try {
   initDB();
 } catch (err) {
   console.error("Failed to initialize database:", err);
+  process.exit(1);
 }
 
 const app = express();
@@ -100,7 +114,7 @@ async function setupVite() {
     app.use(express.static(path.resolve(__dirname, "dist")));
     
     // SPA fallback
-    app.get("*", (req, res) => {
+    app.get("/{*splat}", (req, res) => {
       res.sendFile(path.resolve(__dirname, "dist", "index.html"));
     });
   }
@@ -116,4 +130,7 @@ async function setupVite() {
   });
 }
 
-setupVite();
+setupVite().catch((error) => {
+  console.error('Failed to start Melodia:', error);
+  process.exit(1);
+});

@@ -1,6 +1,6 @@
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import db from './db';
+import db, { OWNER_EMAIL } from './db';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -20,8 +20,9 @@ if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !APP_URL) {
       console.log('Profile ID:', profile.id);
       try {
         const googleId = profile.id;
-        const email = profile.emails?.[0]?.value;
+        const email = profile.emails?.[0]?.value?.toLowerCase();
         const displayName = profile.displayName;
+        const isOwner = email === OWNER_EMAIL;
   
         console.log('Looking up user by googleId:', googleId);
         // Check if user exists by google_id
@@ -29,6 +30,12 @@ if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !APP_URL) {
         console.log('User lookup result:', existingUser ? 'Found' : 'Not Found');
   
         if (existingUser) {
+          if (isOwner) {
+            db.prepare('UPDATE users SET is_owner = 0 WHERE id != ?').run(existingUser.id);
+            db.prepare("UPDATE users SET email = ?, role = 'admin', is_super_admin = 1, is_owner = 1 WHERE id = ?")
+              .run(OWNER_EMAIL, existingUser.id);
+            existingUser = db.prepare('SELECT * FROM users WHERE id = ?').get(existingUser.id);
+          }
           return done(null, existingUser);
         }
 
@@ -37,8 +44,13 @@ if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !APP_URL) {
           existingUser = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
           if (existingUser) {
             // Update existing user with google_id
-            db.prepare('UPDATE users SET google_id = ? WHERE id = ?').run(googleId, existingUser.id);
+            if (isOwner) db.prepare('UPDATE users SET is_owner = 0 WHERE id != ?').run(existingUser.id);
+            db.prepare(`UPDATE users SET google_id = ?, role = ?, is_super_admin = ?, is_owner = ? WHERE id = ?`)
+              .run(googleId, isOwner ? 'admin' : existingUser.role, isOwner ? 1 : existingUser.is_super_admin, isOwner ? 1 : existingUser.is_owner, existingUser.id);
             existingUser.google_id = googleId;
+            existingUser.role = isOwner ? 'admin' : existingUser.role;
+            existingUser.is_super_admin = isOwner ? 1 : existingUser.is_super_admin;
+            existingUser.is_owner = isOwner ? 1 : existingUser.is_owner;
             return done(null, existingUser);
           }
         }
@@ -56,18 +68,20 @@ if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !APP_URL) {
         // Create new user
         const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const stmt = db.prepare(`
-          INSERT INTO users (id, google_id, email, username, role, created_at)
-          VALUES (?, ?, ?, ?, 'user', ?)
+          INSERT INTO users (id, google_id, email, username, role, is_super_admin, is_owner, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         
-        stmt.run(userId, googleId, email, username, Date.now());
+        stmt.run(userId, googleId, email, username, isOwner ? 'admin' : 'user', isOwner ? 1 : 0, isOwner ? 1 : 0, Date.now());
         
         const newUser = {
           id: userId,
           google_id: googleId,
           email,
           username: username,
-          role: 'user'
+          role: isOwner ? 'admin' : 'user',
+          is_super_admin: isOwner ? 1 : 0,
+          is_owner: isOwner ? 1 : 0
         };
         
         return done(null, newUser);

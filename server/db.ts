@@ -4,6 +4,8 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import bcrypt from 'bcryptjs';
 
+export const OWNER_EMAIL = 'agency.oneforall@gmail.com';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const defaultDbPath = path.resolve(__dirname, '../melodia.db');
 const envDbPath = process.env.DATABASE_PATH;
@@ -28,6 +30,7 @@ export function initDB() {
       country TEXT,
       created_at INTEGER,
       is_super_admin INTEGER DEFAULT 0,
+      is_owner INTEGER DEFAULT 0,
       last_username_update INTEGER DEFAULT 0
     )
   `);
@@ -201,6 +204,10 @@ export function initDB() {
     db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user' CHECK(role IN ('user', 'admin'))");
   } catch (e) { /* Column likely exists */ }
 
+  try {
+    db.exec("ALTER TABLE users ADD COLUMN is_owner INTEGER DEFAULT 0");
+  } catch (e) { /* Column likely exists */ }
+
   // Tracks Migrations
   const trackColumns = [
     "title TEXT", "artist TEXT", "genre TEXT", "sub_genre TEXT", 
@@ -243,35 +250,44 @@ export function initDB() {
     console.error('Failed to create indexes', e);
   }
 
-  // Admin Seeding
+  // Owner seeding. The owner identity is fixed by email; credentials remain rotatable.
   const adminUsername = process.env.ADMIN_USERNAME;
   const adminPassword = process.env.ADMIN_PASSWORD;
 
-  if (adminUsername && adminPassword) {
-    try {
-      const existingAdmin = db.prepare('SELECT * FROM users WHERE username = ?').get(adminUsername) as any;
-      const hashedPassword = bcrypt.hashSync(adminPassword, 10);
-      
-      if (existingAdmin) {
-        // Update existing admin
-        db.prepare(`
-          UPDATE users 
-          SET password = ?, role = 'admin', is_super_admin = 1 
-          WHERE username = ?
-        `).run(hashedPassword, adminUsername);
-        console.log(`Admin user '${adminUsername}' updated from environment variables.`);
-      } else {
-        // Create new admin
-        const adminId = `admin_${Date.now()}`;
-        db.prepare(`
-          INSERT INTO users (id, username, password, role, is_super_admin, created_at)
-          VALUES (?, ?, ?, 'admin', 1, ?)
-        `).run(adminId, adminUsername, hashedPassword, Date.now());
-        console.log(`Admin user '${adminUsername}' created from environment variables.`);
-      }
-    } catch (error) {
-      console.error('Failed to seed admin user:', error);
+  try {
+    let owner = db.prepare('SELECT * FROM users WHERE lower(email) = ?').get(OWNER_EMAIL) as any;
+
+    if (!owner && adminUsername) {
+      owner = db.prepare('SELECT * FROM users WHERE username = ?').get(adminUsername) as any;
     }
+
+    // There can only be one owner, identified by OWNER_EMAIL.
+    db.prepare('UPDATE users SET is_owner = 0 WHERE lower(COALESCE(email, \'\')) != ?').run(OWNER_EMAIL);
+
+    if (owner) {
+      const updates: string[] = ["email = ?", "role = 'admin'", 'is_super_admin = 1', 'is_owner = 1'];
+      const values: unknown[] = [OWNER_EMAIL];
+
+      if (adminPassword) {
+        updates.unshift('password = ?');
+        values.unshift(bcrypt.hashSync(adminPassword, 10));
+      }
+
+      values.push(owner.id);
+      db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      console.log(`Owner '${OWNER_EMAIL}' verified.`);
+    } else if (adminUsername && adminPassword) {
+      const hashedPassword = bcrypt.hashSync(adminPassword, 10);
+      const ownerId = `owner_${Date.now()}`;
+      db.prepare(`
+        INSERT INTO users (id, username, email, password, role, is_super_admin, is_owner, created_at)
+        VALUES (?, ?, ?, ?, 'admin', 1, 1, ?)
+      `).run(ownerId, adminUsername, OWNER_EMAIL, hashedPassword, Date.now());
+      console.log(`Owner '${OWNER_EMAIL}' created from environment variables.`);
+    }
+  } catch (error) {
+    console.error('Failed to seed owner user:', error);
+    throw error;
   }
 
   console.log('Database initialized with users and tracks tables.');
