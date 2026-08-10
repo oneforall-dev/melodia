@@ -1,9 +1,14 @@
 import express from 'express';
 import db from '../db';
+import { authenticateJWT } from '../middleware/auth';
 
 const router = express.Router();
 
-router.get('/stats', (req, res) => {
+router.get('/stats', authenticateJWT, (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== 'admin' && !user.isSuperAdmin) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   try {
     const totalSongs = (db.prepare('SELECT COUNT(*) as count FROM tracks').get() as any).count;
     const totalVotes = (db.prepare('SELECT COUNT(*) as count FROM votes').get() as any).count;

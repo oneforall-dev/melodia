@@ -1,0 +1,10 @@
+@import "tailwindcss";
+@source "./";
+
+body { font-family: 'Inter', sans-serif; background-color: #000; color: white; }
+.font-billboard { font-family: 'Oswald', sans-serif; }
+.fade-in { animation: fadeIn 0.5s ease-out forwards; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+#landing-page { transition: opacity 0.5s ease-in-out; }
+.loader-spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

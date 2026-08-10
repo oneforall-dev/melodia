@@ -25,9 +25,12 @@ const AdminDashboardModal = lazy(() => import('./components/AdminDashboardModal'
 const App: React.FC = () => {
   const { t } = useTranslation();
   const { showToast } = useToast();
+  const isChartHost = window.location.hostname === 'chart.melodia.top' || import.meta.env.VITE_APP_MODE === 'chart';
   
   // Navigation State
-  const [showLanding, setShowLanding] = useState(window.location.pathname === '/' || window.location.pathname === '/index.html');
+  const [showLanding, setShowLanding] = useState(
+    !isChartHost && (window.location.pathname === '/' || window.location.pathname === '/index.html')
+  );
   const [activeLegalPage, setActiveLegalPage] = useState<'privacy' | 'terms' | null>(
     window.location.pathname === '/privacypolicy' ? 'privacy' : 
     window.location.pathname === '/terms' ? 'terms' : null
@@ -90,6 +93,10 @@ const App: React.FC = () => {
 
   // --- NAVIGATION HELPERS ---
   const navigateToCharts = () => {
+    if (!isChartHost && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      window.location.assign('https://chart.melodia.top');
+      return;
+    }
     setShowLanding(false);
     setActiveLegalPage(null);
     // Just reset filters, we are already in the app view
@@ -100,6 +107,24 @@ const App: React.FC = () => {
     setSearchQuery('');
     window.history.pushState({}, '', '/charts');
   };
+
+  // Complete OAuth flows opened in a popup and refresh the authenticated UI.
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin === window.location.origin && event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+        window.location.reload();
+      }
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'oauth_success') window.location.reload();
+    };
+    window.addEventListener('message', handleMessage);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
 
   const navigateToLegal = (page: 'privacy' | 'terms') => {
     setShowLanding(false);
@@ -703,7 +728,7 @@ const App: React.FC = () => {
                         user={user}
                         onRate={handleRate}
                         showSubmittedDate={showMyTracks}
-                        allowEdit={showMyTracks}
+                        allowEdit={showMyTracks || user?.isSuperAdmin}
                         onUpdate={handleUpdateSong}
                         onTransfer={handleTransferClick}
                         onSpotlight={handleSpotlightClick}

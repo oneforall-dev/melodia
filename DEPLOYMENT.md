@@ -2,6 +2,13 @@
 
 Production URL: `https://chart.melodia.top`
 
+## Recommended domain layout
+
+- `https://melodia.top`: deploy with `Dockerfile.landing` on port `8080`. This image contains only the public landing and legal pages; it needs no secrets or persistent volume.
+- `https://chart.melodia.top`: deploy with `docker-compose.yml` (or the default `Dockerfile`) on port `3000`. Keep the SQLite volume and all authentication variables here.
+
+The frontend detects `chart.melodia.top` and opens the chart directly. Calls to action on the public landing send visitors to the chart domain.
+
 ## 1. DNS
 
 Create an `A` record for `chart.melodia.top` pointing to the public IPv4 address of the Coolify server. If the server has IPv6, optionally add the matching `AAAA` record.
