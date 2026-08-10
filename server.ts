@@ -6,7 +6,6 @@ import passport from 'passport';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createServer as createViteServer } from "vite";
 import 'dotenv/config';
 
 console.log('Server restarting... Loading routes with stats.');
@@ -104,6 +103,7 @@ app.use('/', chartRoutes);
 
 async function setupVite() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
